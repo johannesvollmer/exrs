@@ -46,9 +46,10 @@
 //! sample through the transfer function to a signed integer of the
 //! component's depth before coding. Like `OpenEXR` 3.5.2 and later, the
 //! decoder reads them and undoes that mapping on the lossy components
-//! after decoding the codestream (see [`write_legacy_samples`]).
+//! after decoding the codestream (see [`write_legacy_samples`]). exrs
+//! writes only the later form.
 
-use std::convert::TryFrom;
+use std::{borrow::Cow, convert::TryFrom, io::Write};
 
 use ::htj2k::{codestream::Encoder, params::nonlinearity, types::Point};
 
@@ -116,7 +117,8 @@ const BLOCK_SIZE: (u32, u32) = (128, 32);
 /// them in any case: see [`must_store_raw`].
 ///
 /// `chunk_lines` is the height of a full chunk: 32 for `HTJ2K32` and 256
-/// for `HTJ2K256`, or the tile height.
+/// for `HTJ2K256` and `LJ2K`, or the tile height. `lj2k_quality` is the
+/// quality of `LJ2K`, and `None` for `HTJ2K32` and `HTJ2K256`.
 ///
 /// Refuses channel sampling that is not a power of two, as `OpenEXR` fails
 /// on it: the encoder cannot subsample by other factors with RPCL.
@@ -125,7 +127,11 @@ pub fn compress(
     uncompressed: &[u8],
     rectangle: IntegerBounds,
     chunk_lines: usize,
+    lj2k_quality: Option<f32>,
 ) -> Result<Option<ByteVec>> {
+    if let Some(quality) = lj2k_quality {
+        Compression::LJ2K(Some(quality)).lj2k_quality()?;
+    }
     for channel in &channels.list {
         let Vec2(x, y) = channel.sampling;
         if !x.is_power_of_two() || !y.is_power_of_two() {
@@ -147,10 +153,6 @@ pub fn compress(
 
     let width = rectangle.size.width();
     let height = rectangle.size.height();
-    let image_size = Point::new(
-        u32::try_from(width).map_err(|_| Error::unsupported("HTJ2K chunk width"))?,
-        u32::try_from(height).map_err(|_| Error::unsupported("HTJ2K chunk height"))?,
-    );
 
     // The codestream gives a component ceil(height / sampling) lines, as
     // the image offset is 0, which must be the lines of its channel. With
@@ -164,17 +166,63 @@ pub fn compress(
 
     let (rgb, file_channels) = channel_map(channels);
     let planar = is_planar(channels);
+    let lossy = lj2k_quality.and_then(|quality| {
+        lossy_triplet(channels, &file_channels, rgb).then(|| Lossy {
+            quality,
+            max_linear: chunk_max_linear(channels, &file_channels, &layout, uncompressed),
+        })
+    });
+
+    // A lossy chunk is padded to 1 modulo 32 each way, unless planar or too
+    // large to pad, as `ht_apply_impl` does
+    let (coded_width, coded_height) = match lossy {
+        Some(_) if !planar => padded_length(width, DECOMPOSITION_LEVELS)
+            .zip(padded_length(height, DECOMPOSITION_LEVELS))
+            .unwrap_or((width, height)),
+        _ => (width, height),
+    };
+    let padded = (coded_width, coded_height) != (width, height);
+    let image_size = Point::new(
+        u32::try_from(coded_width).map_err(|_| Error::unsupported("HTJ2K chunk width"))?,
+        u32::try_from(coded_height).map_err(|_| Error::unsupported("HTJ2K chunk height"))?,
+    );
 
     let mut compressed = Vec::with_capacity(uncompressed.len());
-    write_chunk_header(&mut compressed, &file_channels)?;
+    let magic = if lj2k_quality.is_some() {
+        MAGIC_LJ2K
+    } else {
+        MAGIC
+    };
+    write_chunk_header(&mut compressed, magic, &file_channels)?;
 
-    let mut encoder =
-        new_encoder(channels, &file_channels, rgb, planar, image_size).map_err(encoder_error)?;
-    encoder.write_headers(&mut compressed, &[]).map_err(encoder_error)?;
+    let mut encoder = new_encoder(channels, &file_channels, rgb, planar, image_size, lossy)
+        .map_err(encoder_error)?;
+
+    // A padded codestream says so in a comment, so that it describes itself
+    // when taken out of the file. No decoder needs it. The text is made
+    // without allocating: the padding is at most 31 each way.
+    let padding_comment = if padded {
+        let mut text = [0_u8; 64];
+        let rows = coded_height - height;
+        let cols = coded_width - width;
+        let mut cursor = &mut text[..];
+        write!(cursor, "OpenEXR LJ2K padding: rows={rows} cols={cols}")
+            .map_err(|_| Error::invalid("LJ2K padding comment"))?;
+        let length = 64 - cursor.len();
+        let text = std::str::from_utf8(&text[..length])
+            .map_err(|_| Error::invalid("LJ2K padding comment"))?;
+        let mut comment = ::htj2k::params::CommentExchange::new();
+        comment.set_string(text).map_err(encoder_error)?;
+        Some(comment)
+    } else {
+        None
+    };
+    encoder.write_headers(&mut compressed, padding_comment.as_slice()).map_err(encoder_error)?;
 
     // The encoder asks for the lines in the order it codes them: planar,
     // all the lines of one component after the other, or else one line of
-    // each component in turn.
+    // each component in turn. The lines of padding repeat the last line of
+    // the chunk, and the samples of padding the last sample of their line.
     let mut next_line = vec![0_usize; file_channels.len()];
     while let Some((component, line)) = encoder.exchange().map_err(encoder_error)? {
         let component = component as usize;
@@ -182,18 +230,33 @@ pub fn compress(
         let sample_type = channels.list[file_channel].sample_type;
         let channel_layout = &layout[file_channel];
 
+        let index = next_line[component];
+        next_line[component] += 1;
+        let index = if padded {
+            index.min(channel_layout.lines.len().saturating_sub(1))
+        } else {
+            index
+        };
         let start = channel_layout
             .lines
-            .get(next_line[component])
+            .get(index)
             .copied()
             .ok_or_else(|| Error::invalid("HTJ2K encoder asked for too many lines"))?;
-        next_line[component] += 1;
 
-        if line.len() != channel_layout.width {
+        let line_width = if padded {
+            coded_width
+        } else {
+            channel_layout.width
+        };
+        if line.len() != line_width {
             return Err(Error::invalid("HTJ2K encoder line size"));
         }
+        let (samples, padding) = line.split_at_mut(channel_layout.width);
         let size = sample_type.bytes_per_sample() * channel_layout.width;
-        read_samples(line, &uncompressed[start..start + size], sample_type);
+        read_samples(samples, &uncompressed[start..start + size], sample_type);
+        if let Some(&last) = samples.last() {
+            padding.fill(last);
+        }
     }
     encoder.flush(&mut compressed).map_err(encoder_error)?;
 
@@ -210,7 +273,7 @@ pub fn compress(
 /// without error and then cannot read them, and some hold wrong samples.
 /// Uncompressed chunks stay readable by every reader. With power-of-two
 /// sampling, this is a y sampling of 64 or more with `HTJ2K32`, or 512 or
-/// more with `HTJ2K256`.
+/// more with `HTJ2K256` and `LJ2K`.
 fn must_store_raw(channels: &ChannelList, chunk_lines: usize) -> bool {
     channels.list.iter().any(|channel| {
         let sampling = channel.sampling.y();
@@ -218,16 +281,31 @@ fn must_store_raw(channels: &ChannelList, chunk_lines: usize) -> bool {
     })
 }
 
+/// How `LJ2K` codes the lossy R, G and B components of a chunk.
+#[derive(Clone, Copy, Debug)]
+struct Lossy {
+    /// From 1 to 150.
+    quality: f32,
+
+    /// The largest magnitude the NLT table of FLOAT samples spans: half's
+    /// largest, or more if the chunk's samples exceed it. See
+    /// [`chunk_max_linear`].
+    max_linear: f64,
+}
+
 /// An encoder set up for one chunk with `ht_apply_impl`'s calls, in the
-/// same order: lossless (reversible, NLT type 3 on HALF and FLOAT
-/// channels), 128x32 code blocks, 5 decomposition levels, RPCL, a TLM marker
-/// and tile parts at each resolution, at image offset 0.
+/// same order: 128x32 code blocks, 5 decomposition levels, RPCL, a TLM
+/// marker and tile parts at each resolution, at image offset 0, and either
+/// lossless (reversible, NLT type 3 on HALF and FLOAT channels) or, with
+/// `lossy`, irreversible on components 0, 1 and 2 (NLT type 4) and
+/// reversible on the others.
 fn new_encoder(
     channels: &ChannelList,
     file_channels: &[usize],
     rgb: bool,
     planar: bool,
     image_size: Point,
+    lossy: Option<Lossy>,
 ) -> ::htj2k::Result<Encoder> {
     let mut encoder = Encoder::new();
     encoder.set_version_comment(Some(OPENJPH_VERSION_COMMENT))?;
@@ -249,15 +327,47 @@ fn new_encoder(
     siz.set_image_offset(Point::new(0, 0));
     siz.set_image_extent(image_size);
 
-    encoder.access_cod_mut()?.set_reversible(true);
+    let float_table = if let Some(lossy) = lossy {
+        encoder.access_cod_mut()?.set_reversible(false);
+        set_quantisation(&mut encoder, lossy, channels.list[file_channels[0]].sample_type)?;
+        let cod = encoder.access_cod_mut()?;
+        for component in 3..component_count {
+            cod.set_reversible_comp(component, true);
+        }
+        Some(float_nlt_table(lossy.max_linear))
+    } else {
+        encoder.access_cod_mut()?.set_reversible(true);
+        None
+    };
 
     for (component, &file_channel) in (0_u32..).zip(file_channels) {
         let channel = &channels.list[file_channel];
         let is_float = channel.sample_type != SampleType::U32;
-        if is_float {
+        if is_float && encoder.access_cod().is_reversible_comp(component) {
             encoder
                 .access_nlt_mut()?
                 .set_nonlinear_transform(component, nonlinearity::OJPH_NLT_BINARY_COMPLEMENT_NLT)?;
+        } else if is_float {
+            // the transfer function as a table: OpenEXR's 16-bit table for
+            // HALF, and its 32-bit table for the chunk's range for FLOAT
+            let (bits, table): (u8, &[u32]) = match channel.sample_type {
+                SampleType::F16 => (16, half_nlt_table()),
+                _ => (32, float_table.as_deref().unwrap_or_else(|| float_nlt_table_half_range())),
+            };
+            encoder.access_nlt_mut()?.set_nonlinear_transform_lut(
+                component,
+                bits,
+                true,
+                0,
+                u32::MAX,
+                bits,
+                // the tables have 513 and 257 points
+                u16::try_from(table.len()).unwrap_or(u16::MAX),
+                table,
+                nonlinearity::OJPH_NLT_BINARY_COMPLEMENT_PLUS_LUT,
+                false,
+                0,
+            )?;
         }
 
         // sampling above u32::MAX becomes 0, which the encoder refuses
@@ -276,9 +386,137 @@ fn new_encoder(
     Ok(encoder)
 }
 
-/// `tf_to_linear` in `OpenEXR`: a power of 2.2 up to 1, exponential above,
-/// odd. The C++ constants are `float` literals, so they are rounded to
-/// `f32` before the arithmetic in `f64`.
+/// Whether `LJ2K` codes components 0, 1 and 2 lossily, as `ht_apply_impl`
+/// decides: they must be an R, G and B triplet (see [`channel_map`]) of
+/// HALF or FLOAT channels that are not subsampled. (`OpenEXR` also requires
+/// their names to be those of colours, which a triplet's always are.)
+fn lossy_triplet(channels: &ChannelList, file_channels: &[usize], rgb: bool) -> bool {
+    rgb && file_channels[..3].iter().all(|&file_channel| {
+        let channel = &channels.list[file_channel];
+        channel.sample_type != SampleType::U32 && channel.sampling == Vec2(1, 1)
+    })
+}
+
+/// The quantisation of the lossy components for `quality`, as
+/// `ht_apply_impl` sets it. Below 97 it is `OpenJPH`'s Qfactor, rounded to an
+/// integer. From 97 to 150, which `OpenEXR` adds for its deeper samples, it
+/// is an explicit step size for the luma component, and that step divided
+/// by the colour transform's gain for each chroma component. For FLOAT
+/// samples whose table spans more than half's range, the step is scaled so
+/// that it means the same in the transfer function's domain.
+// The casts and the arithmetic are `OpenEXR`'s, which this must reproduce
+// bit for bit: a fused multiply-add or `exp2` would round differently.
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::cast_possible_wrap,
+    clippy::cast_precision_loss,
+    clippy::suboptimal_flops
+)]
+fn set_quantisation(
+    encoder: &mut Encoder,
+    lossy: Lossy,
+    sample_type: SampleType,
+) -> ::htj2k::Result<()> {
+    let quality = f64::from(lossy.quality);
+    let qcd = encoder.access_qcd_mut()?;
+    if quality < 97.0 {
+        // `(ui8) std::lround (qfactor)`: halves away from zero
+        qcd.set_qfactor(f32::from(quality.round() as u8))?;
+    } else {
+        let scaled = (quality - 97.0) / 53.0;
+        let mut delta = 0.005 * 2_f64.powf(-28.478 * scaled) + 0.001 * 2_f64.powf(-10.534 * scaled);
+        if sample_type == SampleType::F32 {
+            delta *= tf_from_linear(HALF_MAX) / tf_from_linear(lossy.max_linear);
+        }
+        // luma, then the two chroma components, each in its own QCC marker
+        qcd.set_irrev_quant(delta as f32);
+        qcd.set_irrev_quant_comp(1, (delta / (3.2584_f64 / 3.0).sqrt()) as f32);
+        qcd.set_irrev_quant_comp(2, (delta / (2.4756_f64 / 3.0).sqrt()) as f32);
+    }
+    Ok(())
+}
+
+/// `HALF_MAX`, the largest finite HALF value.
+const HALF_MAX: f64 = 65504.0;
+
+/// The range the NLT table of lossy FLOAT components spans for a chunk
+/// (`chunk_max_linear_float` in `OpenEXR`): the largest finite magnitude of
+/// the FLOAT samples of components 0, 1 and 2, with a margin of 5 %, if
+/// that exceeds half's largest value, and otherwise half's largest value.
+fn chunk_max_linear(
+    channels: &ChannelList,
+    file_channels: &[usize],
+    layout: &[ChannelLayout],
+    uncompressed: &[u8],
+) -> f64 {
+    let mut max = 0.0_f64;
+    for &file_channel in &file_channels[..3.min(file_channels.len())] {
+        if channels.list[file_channel].sample_type != SampleType::F32 {
+            continue;
+        }
+        let channel_layout = &layout[file_channel];
+        for &start in &channel_layout.lines {
+            let line = &uncompressed[start..start + 4 * channel_layout.width];
+            for bytes in line.chunks_exact(4) {
+                let value = f32::from_ne_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
+                if value.is_finite() {
+                    max = max.max(f64::from(value).abs());
+                }
+            }
+        }
+    }
+    if max > HALF_MAX {
+        max * 1.05
+    } else {
+        HALF_MAX
+    }
+}
+
+/// `OpenEXR`'s NLT type 4 table for lossy HALF components, built once.
+fn half_nlt_table() -> &'static [u32] {
+    static TABLE: std::sync::OnceLock<Vec<u32>> = std::sync::OnceLock::new();
+    TABLE.get_or_init(|| build_nlt_table_16(513))
+}
+
+/// `OpenEXR`'s NLT type 4 table for lossy FLOAT components within half's
+/// range, which most chunks use, built once.
+fn float_nlt_table_half_range() -> &'static [u32] {
+    static TABLE: std::sync::OnceLock<Vec<u32>> = std::sync::OnceLock::new();
+    TABLE.get_or_init(|| build_nlt_table_32(FLOAT_NLT_POINTS, HALF_MAX))
+}
+
+/// The points of `OpenEXR`'s FLOAT tables.
+const FLOAT_NLT_POINTS: u32 = 257;
+
+/// The NLT type 4 table for lossy FLOAT components spanning `max_linear`:
+/// the shared one within half's range, or one built for the chunk.
+fn float_nlt_table(max_linear: f64) -> Cow<'static, [u32]> {
+    if max_linear > HALF_MAX {
+        Cow::Owned(build_nlt_table_32(FLOAT_NLT_POINTS, max_linear))
+    } else {
+        Cow::Borrowed(float_nlt_table_half_range())
+    }
+}
+
+/// `tf_from_linear` in `OpenEXR`: a power of 1 / 2.2 up to 1, logarithmic
+/// above, odd. The C++ constants are `float` literals, so they are rounded
+/// to `f32` before the arithmetic in `f64`.
+fn tf_from_linear(x: f64) -> f64 {
+    let sign = if x < 0.0 {
+        -1.0
+    } else {
+        1.0
+    };
+    let v = x.abs();
+    if v <= 1.0 {
+        sign * v.powf(f64::from(1.0_f32 / 2.2_f32))
+    } else {
+        sign * (v.ln() / f64::from(2.2_f32) + 1.0)
+    }
+}
+
+/// `tf_to_linear` in `OpenEXR`, the inverse of [`tf_from_linear`].
 fn tf_to_linear(x: f64) -> f64 {
     let sign = if x < 0.0 {
         -1.0
@@ -294,7 +532,8 @@ fn tf_to_linear(x: f64) -> f64 {
 }
 
 /// Imath's `imath_float_to_half`: to nearest even, overflowing to
-/// infinity. Legacy `LJ2K` samples must use exactly this rounding.
+/// infinity. The tables and legacy `LJ2K` samples must use exactly this
+/// rounding.
 // The casts and the arithmetic are `OpenEXR`'s, which this must reproduce
 // bit for bit: a fused multiply-add or `exp2` would round differently.
 #[allow(
@@ -336,6 +575,69 @@ fn float_to_half_bits(f: f32) -> u16 {
         half += 1;
     }
     half
+}
+
+/// `nlt_smag` in `OpenEXR`: the binary complement of NLT type 3, from the
+/// bits of a sample as a signed integer to sign and magnitude.
+const fn nlt_sign_magnitude(value: i64, bit_depth: u32) -> i64 {
+    if value >= 0 {
+        value
+    } else {
+        -value - ((1_i64 << (bit_depth - 1)) + 1)
+    }
+}
+
+/// `build_nlt_lut_16` in `OpenEXR`: the HALF bits of `points` values of the
+/// transfer function, evenly spaced over the 16-bit range, mapped to
+/// unsigned table entries.
+// The casts and the arithmetic are `OpenEXR`'s, which this must reproduce
+// bit for bit: a fused multiply-add or `exp2` would round differently.
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::cast_possible_wrap,
+    clippy::cast_precision_loss,
+    clippy::suboptimal_flops
+)]
+fn build_nlt_table_16(points: u32) -> Vec<u32> {
+    const LIMIT: f64 = 65536.0;
+    let factor = 32767.0 / tf_from_linear(HALF_MAX);
+    let delta = 2.0 * 32767.0 / f64::from(points - 1);
+    (0..points)
+        .map(|index| {
+            let linear = tf_to_linear((-32767.0 + f64::from(index) * delta) / factor);
+            let bits = i64::from(float_to_half_bits(linear as f32) as i16);
+            let z = nlt_sign_magnitude(bits, 16) as f64 / LIMIT + 0.5;
+            // `llround`, then truncated to the table's 16 bits
+            u32::from((z * (LIMIT - 1.0)).round() as i64 as u16)
+        })
+        .collect()
+}
+
+/// `build_nlt_lut_32` in `OpenEXR`: as [`build_nlt_table_16`] for FLOAT
+/// bits, spanning up to `max_linear`.
+// The casts and the arithmetic are `OpenEXR`'s, which this must reproduce
+// bit for bit: a fused multiply-add or `exp2` would round differently.
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::cast_possible_wrap,
+    clippy::cast_precision_loss,
+    clippy::suboptimal_flops
+)]
+fn build_nlt_table_32(points: u32, max_linear: f64) -> Vec<u32> {
+    const LIMIT: f64 = 4_294_967_296.0;
+    let range = f64::from(i32::MAX);
+    let factor = range / tf_from_linear(max_linear);
+    let delta = 2.0 * range / f64::from(points - 1);
+    (0..points)
+        .map(|index| {
+            let linear = tf_to_linear((-range + f64::from(index) * delta) / factor);
+            let bits = i64::from((linear as f32).to_bits() as i32);
+            let z = nlt_sign_magnitude(bits, 32) as f64 / LIMIT + 0.5;
+            (z * (LIMIT - 1.0)).round() as i64 as u32
+        })
+        .collect()
 }
 
 /// The codestream component order, `make_channel_map` in `OpenEXR`: the file
@@ -414,12 +716,12 @@ fn channel_map(channels: &ChannelList) -> (bool, Vec<usize>) {
 
 /// Appends the chunk header (see the module documentation) for components
 /// coding `file_channels`.
-fn write_chunk_header(target: &mut ByteVec, file_channels: &[usize]) -> UnitResult {
+fn write_chunk_header(target: &mut ByteVec, magic: u16, file_channels: &[usize]) -> UnitResult {
     let too_many = || Error::unsupported("HTJ2K compression of more than 65535 channels");
     let count = u16::try_from(file_channels.len()).map_err(|_| too_many())?;
 
     let payload_size = 2 + 2 * u32::from(count);
-    target.extend_from_slice(&MAGIC.to_be_bytes());
+    target.extend_from_slice(&magic.to_be_bytes());
     target.extend_from_slice(&payload_size.to_be_bytes());
     target.extend_from_slice(&count.to_be_bytes());
     for &file_channel in file_channels {
@@ -893,7 +1195,7 @@ mod test {
     #[test]
     fn chunk_header_round_trip() {
         let mut chunk = Vec::new();
-        write_chunk_header(&mut chunk, &[3, 2, 1, 0]).unwrap();
+        write_chunk_header(&mut chunk, MAGIC, &[3, 2, 1, 0]).unwrap();
         assert_eq!(chunk, [b'H', b'T', 0, 0, 0, 10, 0, 4, 0, 3, 0, 2, 0, 1, 0, 0]);
         chunk.extend_from_slice(&[0xFF, 0x4F]);
         let (magic, file_channels, codestream) = read_chunk_header(&chunk, 4).unwrap();

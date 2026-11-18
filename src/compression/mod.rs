@@ -318,11 +318,12 @@ impl Compression {
             // the error is returned as it is, as its message tells the user
             // what cannot be compressed
             #[cfg(feature = "htj2k")]
-            HTJ2K32 | HTJ2K256 => match htj2k::compress(
+            HTJ2K32 | HTJ2K256 | LJ2K(_) => match htj2k::compress(
                 &header.channels,
                 &uncompressed_native_endian,
                 pixel_section,
                 max_tile_size.height(),
+                self.lj2k_quality()?,
             )? {
                 Some(compressed) => Ok(compressed),
                 None => {
@@ -338,11 +339,6 @@ impl Compression {
                 return Err(Error::unsupported(
                     "HTJ2K compression (enable the `htj2k` feature of the exr crate)",
                 ))
-            }
-            #[cfg(feature = "htj2k")]
-            LJ2K(_) => {
-                self.lj2k_quality()?;
-                return Err(Error::unsupported("LJ2K compression"));
             }
             #[cfg(not(feature = "htj2k"))]
             LJ2K(_) => {
