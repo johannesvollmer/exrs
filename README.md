@@ -31,6 +31,7 @@ Features include:
 This library has matured quite a bit, but should still be considered incomplete.
 For example, deep data is not supported yet.
 Reading and writing HTJ2K and LJ2K needs the optional `htj2k` cargo feature.
+The `htj2k-simd` feature adds that crate's SIMD kernels (AVX2, NEON) and needs Rust 1.87.
 
 If you encounter an exr file that cannot be opened by this crate but should be,
 please leave an issue on this repository, containing the image file.

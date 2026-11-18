@@ -60,6 +60,11 @@ rayon = ["dep:rayon-core"]
 # pixels returns `Error::NotSupported`.
 htj2k = ["dep:htj2k"]
 
+# The htj2k crate's SIMD kernels: AVX2 on x86_64, chosen at run time, and
+# NEON on aarch64. They change no output, only the speed. Needs Rust 1.87,
+# so it is not part of the `htj2k` feature.
+htj2k-simd = ["htj2k", "htj2k/simd"]
+
 # Expose deterministic input blocks for the DWA DCT benchmark.
 # `cargo bench --features dct-benches --bench dct`
 dct-benches = []
