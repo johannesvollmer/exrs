@@ -34,12 +34,14 @@ fn writing_htj2k_needs_the_feature() {
 
 #[test]
 fn reading_htj2k_needs_the_feature() {
-    let path = "tests/images/valid/custom/htj2k/y_half_htj2k32.exr";
-    let result = read_all_flat_layers_from_file(path);
-    match result {
-        Err(Error::NotSupported(message)) => {
-            assert!(message.contains("`htj2k` feature"), "{}", message);
+    for name in ["y_half_htj2k32.exr", "rgba_half_lj2k_q110.exr"] {
+        let path = format!("tests/images/valid/custom/htj2k/{name}");
+        let result = read_all_flat_layers_from_file(path);
+        match result {
+            Err(Error::NotSupported(message)) => {
+                assert!(message.contains("`htj2k` feature"), "{}", message);
+            }
+            other => panic!("{}: {:?}", name, other.map(|_| ())),
         }
-        other => panic!("{:?}", other.map(|_| ())),
     }
 }

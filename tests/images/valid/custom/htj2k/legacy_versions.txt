@@ -1,0 +1,4 @@
+The exrmetrics that made the *_lj2k351_* files (see generate.py):
+*_lj2k351_q*.exr: exrmetrics (OpenEXR) 3.5.1 https://openexr.com
+*_lj2k351_q*_decoded.exr: exrmetrics (OpenEXR) 3.5.3 https://openexr.com
+  (and 3.5.1 decodes each file to the same uncompressed bytes)
