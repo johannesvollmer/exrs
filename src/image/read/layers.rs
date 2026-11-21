@@ -1,7 +1,7 @@
 //! How to read either a single or a list of layers.
 
 use crate::{
-    block::{chunk::TileCoordinates, BlockIndex, UncompressedBlock},
+    block::{chunk::TileCoordinates, BlockIndex, UncompressedBlock, UncompressedFlatBlock},
     error::{Error, Result, UnitResult},
     image::{
         read::image::{LayersReader, ReadLayers},
@@ -113,7 +113,7 @@ pub trait ChannelsReader {
 
     /// Load a single pixel block, which has not been filtered, into the reader,
     /// accumulating the channel data
-    fn read_block(&mut self, header: &Header, block: UncompressedBlock) -> UnitResult;
+    fn read_block(&mut self, header: &Header, block: UncompressedFlatBlock) -> UnitResult;
 
     /// Deliver the final accumulated channel collection for the image
     fn into_channels(self) -> Self::Channels;
@@ -173,6 +173,7 @@ where
     }
 
     fn read_block(&mut self, headers: &[Header], block: UncompressedBlock) -> UnitResult {
+        let block = block.into_flat()?;
         self.layer_readers
             .get_mut(block.index.layer)
             .expect("invalid layer index argument")
@@ -220,7 +221,14 @@ where
             })
             .next()
             .ok_or_else(|| {
-                Error::invalid("no layer in the image matched your specified requirements")
+                if headers.iter().any(|header| header.deep) {
+                    Error::invalid(
+                        "no flat layer in the image matched your specified requirements \
+                         (use `read().deep_data()` to read deep layers)",
+                    )
+                } else {
+                    Error::invalid("no layer in the image matched your specified requirements")
+                }
             })
     }
 }
@@ -236,6 +244,7 @@ where
     }
 
     fn read_block(&mut self, headers: &[Header], block: UncompressedBlock) -> UnitResult {
+        let block = block.into_flat()?;
         debug_assert_eq!(
             block.index.layer, self.layer_index,
             "block should have been filtered out"

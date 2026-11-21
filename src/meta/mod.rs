@@ -3,6 +3,7 @@
 //! Browse the `exr::image` module to get started with the high-level interface.
 
 pub mod attribute;
+pub mod deep_image_state;
 pub mod header;
 
 use std::{collections::HashSet, convert::TryFrom, fs::File, io::BufReader};
@@ -13,7 +14,7 @@ use self::attribute::*;
 use crate::{
     block::{
         chunk::{CompressedBlock, TileCoordinates},
-        BlockIndex, UncompressedBlock,
+        BlockIndex, UncompressedFlatBlock,
     },
     error::*,
     io::*,
@@ -426,6 +427,17 @@ impl MetaData {
     ) -> Result<Self> {
         let meta_data = Self::read_unvalidated_from_buffered_peekable(read, !pedantic)?;
         Self::validate(meta_data.headers.as_slice(), pedantic)?;
+
+        // a single-layer file must declare deep data in the version flags.
+        // like `OpenEXR` 3.3 and newer, trust the type attribute of each header
+        // in multi-layer files. `OpenEXR` 3.2 and older reject such files,
+        // so reading pedantically requires the flag.
+        let headers_have_deep_data = meta_data.headers.iter().any(|header| header.deep);
+        let flags_are_required = pedantic || !meta_data.requirements.is_multilayer();
+        if flags_are_required && headers_have_deep_data && !meta_data.requirements.has_deep_data {
+            return Err(Error::invalid("deep data in a file not flagged as containing deep data"));
+        }
+
         Ok(meta_data)
     }
 
@@ -495,11 +507,13 @@ impl MetaData {
     /// Go through all the block indices in the correct order and call the
     /// specified closure for each of these blocks. That way, the blocks
     /// indices are filled with real block data and returned as an iterator.
-    /// The closure returns the an `UncompressedBlock` for each block index.
-    pub fn collect_ordered_blocks<'s>(
+    /// The closure returns a block for each block index, for example an
+    /// `UncompressedFlatBlock`, an `UncompressedDeepBlock`, or an
+    /// `UncompressedBlock`.
+    pub fn collect_ordered_blocks<'s, Block>(
         &'s self,
-        mut get_block: impl 's + FnMut(BlockIndex) -> UncompressedBlock,
-    ) -> impl 's + Iterator<Item = (usize, UncompressedBlock)> {
+        mut get_block: impl 's + FnMut(BlockIndex) -> Block,
+    ) -> impl 's + Iterator<Item = (usize, Block)> {
         self.enumerate_ordered_header_block_indices()
             .map(move |(index_in_header, block_index)| (index_in_header, get_block(block_index)))
     }
@@ -511,8 +525,8 @@ impl MetaData {
     pub fn collect_ordered_block_data<'s>(
         &'s self,
         mut get_block_data: impl 's + FnMut(BlockIndex) -> Vec<u8>,
-    ) -> impl 's + Iterator<Item = (usize, UncompressedBlock)> {
-        self.collect_ordered_blocks(move |block_index| UncompressedBlock {
+    ) -> impl 's + Iterator<Item = (usize, UncompressedFlatBlock)> {
+        self.collect_ordered_blocks(move |block_index| UncompressedFlatBlock {
             index: block_index,
             data: get_block_data(block_index),
         })
@@ -524,7 +538,7 @@ impl MetaData {
             return Err(Error::invalid("at least one layer is required"));
         }
 
-        let deep = false; // TODO deep data
+        let deep = headers.iter().any(|header| header.deep);
         let is_multilayer = headers.len() > 1;
         let first_header_has_tiles =
             headers.iter().next().map_or(false, |header| header.blocks.has_tiles());
@@ -538,17 +552,13 @@ impl MetaData {
             // start as low as possible, later increasing if required
             has_long_names: false,
 
-            is_single_layer_and_tiled: !is_multilayer && first_header_has_tiles,
+            // the single tile bit must not be set for deep data
+            is_single_layer_and_tiled: !is_multilayer && !deep && first_header_has_tiles,
             has_multiple_layers: is_multilayer,
             has_deep_data: deep,
         };
 
         for header in headers {
-            if header.deep {
-                // TODO deep data (and then remove this check)
-                return Err(Error::unsupported("deep data not supported yet"));
-            }
-
             header.validate(is_multilayer, &mut minimal_requirements.has_long_names, pedantic)?;
         }
 

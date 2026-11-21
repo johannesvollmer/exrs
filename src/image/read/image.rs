@@ -262,7 +262,8 @@ pub trait LayersReader {
     fn filter_block(&self, meta: &MetaData, tile: TileCoordinates, block: BlockIndex) -> bool;
 
     /// Load a single pixel block, which has not been filtered, into the reader,
-    /// accumulating the layer
+    /// accumulating the layer. The block is either flat or deep, depending on
+    /// its layer. Return an error if the block has an unexpected kind.
     fn read_block(&mut self, headers: &[Header], block: UncompressedBlock) -> UnitResult;
 
     /// Deliver the final accumulated layers for the image

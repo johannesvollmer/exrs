@@ -98,6 +98,8 @@ fn main() {
     // read all pixel blocks from the image, decompressing in parallel
     reader
         .decompress_parallel(true, |meta_data, block| {
+            // this image contains no deep data, so all blocks are flat
+            let block = block.into_flat()?;
             let header = &meta_data.headers[block.index.layer];
 
             // collect all pixel values from the pixel block

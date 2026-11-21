@@ -5,7 +5,7 @@ extern crate rand;
 
 use std::{convert::TryInto, fs::File, io::BufWriter};
 
-use exr::block::{writer::ChunksWriter, UncompressedBlock};
+use exr::block::{writer::ChunksWriter, UncompressedFlatBlock};
 
 // exr imports
 extern crate exr;
@@ -64,7 +64,7 @@ fn main() {
 
             // fill the image file contents with one of the precomputed random
             // values, picking a different one per channel
-            UncompressedBlock::from_lines(channel_description, block_index, |line_mut| {
+            UncompressedFlatBlock::from_lines(channel_description, block_index, |line_mut| {
                 // TODO iterate mut instead??
 
                 let chan = line_mut.location.channel;
